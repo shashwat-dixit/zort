@@ -1,7 +1,17 @@
+// server/index.ts
 import express from "express";
+import { createServer } from "http";
+import { initSocket } from "./socket";
+import cors from "cors";
 
 const app = express();
+app.use(cors());
 
-app.get("/", (req, res) => {
-  res.send("hello World");
+const httpServer = createServer(app);
+const io = initSocket(httpServer);
+
+const PORT = process.env.PORT || 3001;
+
+httpServer.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
