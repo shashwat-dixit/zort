@@ -17,7 +17,7 @@ const RoomEntry = () => {
         if (!username || !roomIdInput) return;
 
         const user = {
-            id: Math.random().toString(36).substr(2, 9),
+            id: Math.random().toString(36).slice(2, 11),
             name: username,
             color: `#${Math.floor(Math.random() * 16777215).toString(16)}`,
         };
@@ -28,16 +28,16 @@ const RoomEntry = () => {
     };
 
     return (
-        <div className="mt-20 w-screen flex items-center justify-center">
+        <div className="mt-14 w-screen flex items-center justify-center">
             <Card className="w-96">
                 <CardHeader>
-                    <CardTitle>Join Whiteboard Room</CardTitle>
+                    <CardTitle className='text-center'>Join Room</CardTitle>
                 </CardHeader>
                 <CardContent>
                     <div className="space-y-4">
                         <div>
                             <Input
-                                placeholder="Your name"
+                                placeholder="Name"
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
                             />
