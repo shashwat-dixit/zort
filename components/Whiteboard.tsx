@@ -1,19 +1,21 @@
 "use client"
 import { useEffect, useRef, useState } from 'react';
-import { motion, useMotionValue, useTransform } from 'framer-motion';
-import { useStore } from '@/store/useStore';
-import { Toolbar } from './toolbar/Toolbar'
 import { io, Socket } from 'socket.io-client';
+import { motion, useMotionValue, useTransform, useDragControls } from 'framer-motion';
+import { useStore } from '@/store/useStore';
+import { Toolbar } from './toolbar/Toolbar';
 import { Element, Point } from '@/types';
 
 export const Whiteboard = ({ roomId }: { roomId: string }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [socket, setSocket] = useState<Socket | null>(null);
+    const dragControls = useDragControls();
 
     const {
         elements,
         addElement,
         updateElement,
+        deleteElement,
         tool,
         color,
         strokeWidth,
@@ -22,7 +24,11 @@ export const Whiteboard = ({ roomId }: { roomId: string }) => {
         offset,
         setZoom,
         setOffset,
-        getTransformedPoint
+        getTransformedPoint,
+        selectedElement,
+        setSelectedElement,
+        isEditingText,
+        setIsEditingText
     } = useStore();
 
     // Framer Motion values for pan and zoom
@@ -33,29 +39,67 @@ export const Whiteboard = ({ roomId }: { roomId: string }) => {
     // Drawing state
     const [isDrawing, setIsDrawing] = useState(false);
     const [currentElement, setCurrentElement] = useState<Element | null>(null);
+    const [startPoint, setStartPoint] = useState<Point | null>(null);
 
-    // Initialize WebSocket connection
     useEffect(() => {
-        const newSocket = io('http://localhost:3001');
+        scale.set(zoom);
+    }, [zoom]);
 
-        newSocket.emit('join-room', { roomId, user });
-
-        newSocket.on('element-added', (element: Element) => {
-            addElement(element);
-        });
-
-        newSocket.on('element-updated', (element: Element) => {
-            updateElement(element.id, element);
-        });
-
-        setSocket(newSocket);
-
-        return () => {
-            newSocket.disconnect();
+    const createNewElement = (point: Point): Element => {
+        const baseElement = {
+            id: Math.random().toString(36).substr(2, 9),
+            color,
+            strokeWidth,
+            x: point.x,
+            y: point.y,
         };
-    }, [roomId, user]);
 
-    // Handle mouse events
+        switch (tool) {
+            case 'rectangle':
+            case 'circle':
+                return {
+                    ...baseElement,
+                    type: tool,
+                    width: 0,
+                    height: 0,
+                };
+            case 'text':
+                return {
+                    ...baseElement,
+                    type: 'text',
+                    text: '',
+                    width: 100,
+                    height: 20,
+                };
+            case 'pencil':
+                return {
+                    ...baseElement,
+                    type: 'pencil',
+                    points: [{ x: 0, y: 0 }],
+                };
+            case 'eraser':   // Add this case
+                return {
+                    ...baseElement,
+                    type: 'pencil', // Use pencil type for eraser strokes
+                    points: [{ x: 0, y: 0 }],
+                    color: '#ffffff', // White color for eraser
+                    strokeWidth: strokeWidth * 2, // Make eraser stroke wider
+                };
+            case 'select':   // Add this case
+                return {       // This won't actually be used but satisfies TypeScript
+                    ...baseElement,
+                    type: 'pencil',
+                    points: [{ x: 0, y: 0 }],
+                };
+            default:
+                return {
+                    ...baseElement,
+                    type: 'pencil',
+                    points: [{ x: 0, y: 0 }],
+                };
+        }
+    };
+
     const handlePointerDown = (e: React.PointerEvent) => {
         if (!containerRef.current) return;
 
@@ -65,23 +109,43 @@ export const Whiteboard = ({ roomId }: { roomId: string }) => {
             y: e.clientY - rect.top
         });
 
-        if (tool === 'pencil') {
-            const newElement: Element = {
-                id: Math.random().toString(36).substr(2, 9),
-                type: 'pencil',
-                x: point.x,
-                y: point.y,
-                points: [{ x: 0, y: 0 }],
-                color,
-                strokeWidth,
-            };
-            setCurrentElement(newElement);
-            setIsDrawing(true);
+        if (tool === 'select') {
+            const clickedElement = elements.find(el =>
+                point.x >= el.x &&
+                point.x <= el.x + (el.width || 0) &&
+                point.y >= el.y &&
+                point.y <= el.y + (el.height || 0)
+            );
+
+            setSelectedElement(clickedElement || null);
+            if (clickedElement?.type === 'text') {
+                setIsEditingText(true);
+            }
+            return;
         }
+
+        if (tool === 'eraser') {
+            const elementToErase = elements.find(el =>
+                point.x >= el.x &&
+                point.x <= el.x + (el.width || 0) &&
+                point.y >= el.y &&
+                point.y <= el.y + (el.height || 0)
+            );
+            if (elementToErase) {
+                deleteElement(elementToErase.id);
+                socket?.emit('element-deleted', { roomId, elementId: elementToErase.id });
+            }
+            return;
+        }
+
+        setStartPoint(point);
+        const newElement = createNewElement(point);
+        setCurrentElement(newElement);
+        setIsDrawing(true);
     };
 
     const handlePointerMove = (e: React.PointerEvent) => {
-        if (!isDrawing || !currentElement || !containerRef.current) return;
+        if (!isDrawing || !currentElement || !startPoint || !containerRef.current) return;
 
         const rect = containerRef.current.getBoundingClientRect();
         const point = getTransformedPoint({
@@ -89,140 +153,261 @@ export const Whiteboard = ({ roomId }: { roomId: string }) => {
             y: e.clientY - rect.top
         });
 
-        if (currentElement.type === 'pencil' && currentElement.points) {
-            const newPoints = [...currentElement.points, {
-                x: point.x - currentElement.x,
-                y: point.y - currentElement.y
-            }];
+        const updatedElement = { ...currentElement };
 
-            const updatedElement = {
-                ...currentElement,
-                points: newPoints
-            };
+        switch (currentElement.type) {
+            case 'rectangle':
+            case 'circle':
+                updatedElement.width = point.x - startPoint.x;
+                updatedElement.height = point.y - startPoint.y;
+                break;
 
-            setCurrentElement(updatedElement);
+            case 'pencil':
+                if (!updatedElement.points) return;
+                updatedElement.points = [
+                    ...updatedElement.points,
+                    {
+                        x: point.x - currentElement.x,
+                        y: point.y - currentElement.y,
+                    }
+                ];
+                break;
+
+            case 'text':
+                updatedElement.width = point.x - startPoint.x;
+                updatedElement.height = point.y - startPoint.y;
+                break;
         }
+
+        setCurrentElement(updatedElement);
     };
 
     const handlePointerUp = () => {
         if (currentElement) {
+            // Don't add empty elements
+            if (
+                currentElement.type === 'pencil' &&
+                currentElement.points &&
+                currentElement.points.length < 2
+            ) {
+                setCurrentElement(null);
+                setIsDrawing(false);
+                return;
+            }
+
             addElement(currentElement);
             socket?.emit('add-element', { roomId, element: currentElement });
         }
         setCurrentElement(null);
         setIsDrawing(false);
+        setStartPoint(null);
     };
 
-    // Create grid pattern
-    const createGridPattern = () => {
-        const pattern = [];
-        const gridSize = 20;
-        const majorGridSize = gridSize * 5;
+    // Handle text editing
+    const handleTextChange = (id: string, text: string) => {
+        updateElement(id, { text });
+        socket?.emit('element-updated', { roomId, elementId: id, changes: { text } });
+    };
 
-        // Minor grid lines
-        for (let i = 0; i < 100; i++) {
-            pattern.push(
-                <line
-                    key={`v-${i}`}
-                    x1={i * gridSize}
-                    y1={0}
-                    x2={i * gridSize}
-                    y2="100%"
-                    stroke="#ddd"
-                    strokeWidth={0.5}
-                />,
-                <line
-                    key={`h-${i}`}
-                    x1={0}
-                    y1={i * gridSize}
-                    x2="100%"
-                    y2={i * gridSize}
-                    stroke="#ddd"
-                    strokeWidth={0.5}
-                />
-            );
+    const handleTextBlur = () => {
+        setIsEditingText(false);
+        setSelectedElement(null);
+    };
+
+    // Pan and zoom handlers
+    const handleWheel = (e: React.WheelEvent) => {
+        if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? -0.1 : 0.1;
+            setZoom(Math.min(Math.max(zoom + delta, 0.1), 5));
+        } else {
+            setOffset({
+                x: offset.x - e.deltaX,
+                y: offset.y - e.deltaY,
+            });
         }
+    };
 
-        // Major grid lines
-        for (let i = 0; i < 20; i++) {
-            pattern.push(
-                <line
-                    key={`v-major-${i}`}
-                    x1={i * majorGridSize}
-                    y1={0}
-                    x2={i * majorGridSize}
-                    y2="100%"
-                    stroke="#ccc"
-                    strokeWidth={1}
-                />,
-                <line
-                    key={`h-major-${i}`}
-                    x1={0}
-                    y1={i * majorGridSize}
-                    x2="100%"
-                    y2={i * majorGridSize}
-                    stroke="#ccc"
-                    strokeWidth={1}
-                />
-            );
+    // Socket.io connection
+    useEffect(() => {
+        const newSocket = io(process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001');
+
+        newSocket.emit('join-room', { roomId, user });
+
+        newSocket.on('element-added', (element: Element) => {
+            addElement(element);
+        });
+
+        newSocket.on('element-updated', ({ elementId, changes }: { elementId: string, changes: Partial<Element> }) => {
+            updateElement(elementId, changes);
+        });
+
+        newSocket.on('element-deleted', (elementId: string) => {
+            deleteElement(elementId);
+        });
+
+        setSocket(newSocket);
+
+        return () => {
+            newSocket.disconnect();
+        };
+    }, [roomId, user]);
+
+    const RenderElement = ({ element, isSelected = false }: { element: Element, isSelected?: boolean }) => {
+        const commonProps = {
+            stroke: element.color,
+            strokeWidth: element.strokeWidth,
+            fill: "none",
+        };
+
+        switch (element.type) {
+            case 'rectangle':
+                return (
+                    <rect
+                        x={element.x}
+                        y={element.y}
+                        width={element.width || 0}
+                        height={element.height || 0}
+                        {...commonProps}
+                    />
+                );
+
+            case 'circle':
+                const rx = Math.abs((element.width || 0) / 2);
+                const ry = Math.abs((element.height || 0) / 2);
+                return (
+                    <ellipse
+                        cx={element.x + (element.width || 0) / 2}
+                        cy={element.y + (element.height || 0) / 2}
+                        rx={rx}
+                        ry={ry}
+                        {...commonProps}
+                    />
+                );
+
+            case 'pencil':
+                if (!element.points?.length) return null;
+                const pathData = `M ${element.points[0].x} ${element.points[0].y} ` +
+                    element.points.slice(1).map(point => `L ${point.x} ${point.y}`).join(' ');
+                return (
+                    <path
+                        d={pathData}
+                        transform={`translate(${element.x},${element.y})`}
+                        {...commonProps}
+                    />
+                );
+
+            case 'text':
+                if (isEditingText && isSelected) {
+                    return (
+                        <foreignObject
+                            x={element.x}
+                            y={element.y}
+                            width={element.width || 200}
+                            height={element.height || 40}
+                        >
+                            <input
+                                type="text"
+                                value={element.text || ''}
+                                onChange={(e) => handleTextChange(element.id, e.target.value)}
+                                onBlur={handleTextBlur}
+                                autoFocus
+                                className="w-full h-full border-none bg-transparent outline-none"
+                                style={{ color: element.color, fontSize: element.strokeWidth * 5 }}
+                            />
+                        </foreignObject>
+                    );
+                }
+                return (
+                    <text
+                        x={element.x}
+                        y={element.y + 20}
+                        fill={element.color}
+                        style={{ fontSize: element.strokeWidth * 5 }}
+                        onDoubleClick={() => {
+                            setSelectedElement(element);
+                            setIsEditingText(true);
+                        }}
+                    >
+                        {element.text || ''}
+                    </text>
+                );
         }
-
-        return pattern;
+        return null;
     };
 
     return (
-        <div className="h-screen w-screen overflow-hidden bg-white">
+        <div
+            className="h-screen w-screen overflow-hidden bg-white"
+            onWheel={handleWheel}
+        >
             <Toolbar />
 
             <motion.div
                 ref={containerRef}
-                className="h-full w-full"
+                className="h-full w-full cursor-crosshair"
                 style={{
                     x,
                     y,
                     scale,
+                    touchAction: 'none',
                 }}
+                drag={tool === 'select' && !isDrawing}
+                dragControls={dragControls}
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
                 onPointerLeave={handlePointerUp}
             >
                 <svg width="100%" height="100%">
-                    <g>
-                        {createGridPattern()}
-                    </g>
+                    {/* Grid Pattern */}
+                    <defs>
+                        <pattern
+                            id="grid"
+                            width="40"
+                            height="40"
+                            patternUnits="userSpaceOnUse"
+                        >
+                            <path
+                                d="M 40 0 L 0 0 0 40"
+                                fill="none"
+                                stroke="#CCCCCC"
+                                strokeWidth="0.5"
+                            />
+                        </pattern>
+                    </defs>
+                    <rect width="100%" height="100%" fill="url(#grid)" />
 
                     {/* Render existing elements */}
                     {elements.map((element) => (
-                        <RenderElement key={element.id} element={element} />
+                        <g key={element.id}>
+                            <RenderElement
+                                element={element}
+                                isSelected={selectedElement?.id === element.id}
+                            />
+                            {selectedElement?.id === element.id && (
+                                <rect
+                                    x={element.x - 2}
+                                    y={element.y - 2}
+                                    width={(element.width || 0) + 4}
+                                    height={(element.height || 0) + 4}
+                                    stroke="#0095ff"
+                                    strokeWidth="1"
+                                    fill="none"
+                                    strokeDasharray="4 4"
+                                />
+                            )}
+                        </g>
                     ))}
 
                     {/* Render current element being drawn */}
-                    {currentElement && <RenderElement element={currentElement} />}
+                    {currentElement && (
+                        <RenderElement element={currentElement} />
+                    )}
                 </svg>
             </motion.div>
         </div>
     );
 };
 
-// Helper component to render different element types
-const RenderElement = ({ element }: { element: Element }) => {
-    switch (element.type) {
-        case 'pencil':
-            if (!element.points?.length) return null;
-            const pathData = `M ${element.points[0].x} ${element.points[0].y} ` +
-                element.points.slice(1).map(point => `L ${point.x} ${point.y}`).join(' ');
-            return (
-                <path
-                    d={pathData}
-                    transform={`translate(${element.x},${element.y})`}
-                    stroke={element.color}
-                    strokeWidth={element.strokeWidth}
-                    fill="none"
-                />
-            );
-        // Add other element type renderers here
-        default:
-            return null;
-    }
-};
+export default Whiteboard;
