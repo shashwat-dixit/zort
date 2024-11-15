@@ -4,13 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "next build",
     "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
     "dev:frontend": "next dev",
     "dev:backend": "tsx watch server/index.ts",
-    "start": "next start",
-    "lint": "next lint",
-    "dev:server": "ts-node server/index.ts"
+    "dev:server": "ts-node server/index.ts",
+    "build": "npm run build:frontend && npm run build:backend",
+    "build:frontend": "next build",
+    "build:backend": "tsc --project tsconfig.server.json",
+    "start": "NODE_ENV=production node --experimental-specifier-resolution=node dist/server/index.js",
+    "start:frontend": "next start",
+    "start:prod": "concurrently \"next start\" \"node --experimental-specifier-resolution=node dist/server/index.js\"",
+    "lint": "next lint"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

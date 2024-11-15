@@ -1,7 +1,8 @@
 "use client"
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { motion, useMotionValue, useTransform, useDragControls } from 'framer-motion';
+// import { motion, useMotionValue, useTransform, useDragControls } from 'framer-motion';
+import { motion, useMotionValue, useDragControls } from 'framer-motion';
 import { useStore } from '@/store/useStore';
 import { Toolbar } from './toolbar/Toolbar';
 import { Element, Point } from '@/types';
