@@ -1,4 +1,3 @@
-// server/index.ts
 import express from "express";
 import { createServer } from "http";
 import { initSocket } from "./socket.js";

@@ -1,4 +1,3 @@
-// server/socket.ts
 import { Server } from "socket.io";
 import type { Server as HTTPServer } from "http";
 import type { Element, User } from "../types/index.ts";
