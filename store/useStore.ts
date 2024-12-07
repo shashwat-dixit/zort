@@ -1,4 +1,3 @@
-// types/index.ts
 import { create } from "zustand";
 import { combine } from "zustand/middleware";
 import { produce } from "immer";

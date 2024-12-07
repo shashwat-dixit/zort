@@ -2,7 +2,7 @@ export type Point = {
   x: number;
   y: number;
 };
-// types/index.ts
+
 export type DrawingTools = "rectangle" | "circle" | "text" | "pencil";
 export type UtilityTools = "select" | "eraser";
 export type ElementType = DrawingTools | UtilityTools;

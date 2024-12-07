@@ -2,18 +2,10 @@
   "name": "zort",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
-    "dev:frontend": "next dev",
-    "dev:backend": "tsx watch server/index.ts",
-    "dev:server": "ts-node server/index.ts",
-    "build": "npm run build:frontend && npm run build:backend",
-    "build:frontend": "next build",
-    "build:backend": "tsc --project tsconfig.server.json",
-    "start": "NODE_ENV=production node --experimental-specifier-resolution=node dist/server/index.js",
-    "start:frontend": "next start",
-    "start:prod": "concurrently \"next start\" \"node --experimental-specifier-resolution=node dist/server/index.js\"",
+    "dev": "concurrently \"next dev\" \"tsx watch server/index.ts\"",
+    "build": "next build",
+    "start": "next start",
     "lint": "next lint"
   },
   "dependencies": {
@@ -56,5 +48,8 @@
     "tailwindcss": "^3.4.1",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

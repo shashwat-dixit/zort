@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useStore } from '@/store/useStore';
 import { useRouter } from 'next/navigation';
+import { joinRoom } from '@/lib/socket';
 
 const RoomEntry = () => {
     const [username, setUsername] = useState('');
@@ -22,6 +23,10 @@ const RoomEntry = () => {
             color: `#${Math.floor(Math.random() * 16777215).toString(16)}`,
         };
 
+        // Join socket room
+        joinRoom(roomIdInput, user);
+
+        // Update store and navigate
         setUser(user);
         setRoomId(roomIdInput);
         router.push(`/room/${roomIdInput}`);
